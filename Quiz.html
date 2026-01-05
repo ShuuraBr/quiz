@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Treinamento Polivalente - Logística</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .hidden { display: none; }
+        .fade-in { animation: fadeIn 0.5s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .option-card { transition: all 0.2s; cursor: pointer; }
+        .option-card:hover { background-color: #e5e7eb; }
+        .selected { border-color: #3b82f6; background-color: #eff6ff; }
+    </style>
+</head>
+<body class="p-6">
+
+    <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <div class="lg:col-span-1 space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-md">
+                <h1 class="text-2xl font-bold text-gray-800 mb-4">Painel de Treinamento</h1>
+                <p class="text-sm text-gray-500 mb-4">Selecione o módulo para iniciar:</p>
+                
+                <div class="space-y-3">
+                    <button onclick="loadQuiz('auxiliar')" class="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition">
+                        Auxiliar de Depósito
+                    </button>
+                    <button onclick="loadQuiz('assistente')" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition">
+                        Assistente de Logística
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-md sticky top-6">
+                <h2 class="text-lg font-semibold text-gray-700 mb-2">Desempenho em Tempo Real</h2>
+                <canvas id="scoreChart"></canvas>
+                <div class="mt-4 text-center">
+                    <span id="scoreText" class="text-3xl font-bold text-gray-800">0%</span>
+                    <p class="text-xs text-gray-500">De acertos até agora</p>
+                </div>
+                
+                <button onclick="showQRCode()" class="mt-6 w-full flex items-center justify-center gap-2 border border-gray-300 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4h2v-4zM6 6h2v2H6V6zm0 12h2v2H6v-2zm12-12h2v2h-2V6z" />
+                    </svg>
+                    Compartilhar via QR Code
+                </button>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2">
+            <div id="quizContainer" class="bg-white p-8 rounded-xl shadow-md min-h-[600px] fade-in">
+                
+                <div id="introState" class="text-center py-20">
+                    <h3 class="text-xl text-gray-400 font-medium">Selecione um questionário ao lado para começar.</h3>
+                </div>
+
+                <div id="questionsList" class="hidden space-y-8">
+                    <div class="flex justify-between items-center border-b pb-4 mb-6">
+                        <h2 id="quizTitle" class="text-2xl font-bold text-gray-800">Título do Quiz</h2>
+                        <span id="progressText" class="text-sm font-semibold text-blue-600">0/0 Respondidas</span>
+                    </div>
+                    
+                    <div id="questionsInject"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="qrModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50" onclick="closeModal(event)">
+        <div class="bg-white p-8 rounded-xl max-w-sm w-full text-center relative">
+            <h3 class="text-xl font-bold mb-4">Compartilhar Questionário</h3>
+            <div id="qrcode" class="flex justify-center mb-4"></div>
+            <p class="text-sm text-gray-500">Escaneie para abrir no celular.</p>
+            <button onclick="document.getElementById('qrModal').classList.add('hidden')" class="mt-4 text-blue-600 font-semibold hover:underline">Fechar</button>
+        </div>
+    </div>
+
+    <script>
+        // --- DADOS DOS PDFS ---
+        // OBS: Como os PDFs não tinham as respostas, coloquei opções genéricas.
+        // O campo 'correct' é o índice da resposta certa (0 = A, 1 = B, 2 = C).
+        
+        const database = {
+            auxiliar: [
+                { category: "1. Processamento e Convocação", question: "Como deve ser iniciado o processo de separação de pedidos?", options: ["Pela leitura do crachá no coletor", "Imprimindo a folha de papel", "Esperando o comando do supervisor"], correct: 0, source: "Aux. Depósito - Q1" },
+                { category: "1. Processamento e Convocação", question: "Qual pedido possui prioridade máxima e por quê?", options: ["Lojas Redes, pois é cliente interno", "Fluxo ATO, pela urgência", "Retira Cliente, pois o cliente está esperando"], correct: 0, source: "Aux. Depósito - Q4" },
+                { category: "2. Execução da Separação", question: "Como deve ser realizada a conferência durante a coleta dos itens?", options: ["Visualmente apenas", "Lendo o código de barras do produto e endereço", "Por contagem manual no final"], correct: 1, source: "Aux. Depósito - Q6" },
+                { category: "3. Destinação Pós-Separação", question: "Para onde devem ser destinados os pedidos do fluxo ENTREGA?", options: ["Para o palco de conferência", "Diretamente para o caminhão", "Para a área de devolução"], correct: 0, source: "Aux. Depósito - Q12" },
+                { category: "7. Reposição", question: "O que significa filtrar materiais por U.M.A.?", options: ["Unidade de Medida de Armazenagem", "Unidade Máxima de Atendimento", "Unidade Mestra de Apoio"], correct: 0, source: "Aux. Depósito - Q24" },
+                { category: "10. Gestão de Lotes", question: "Explique o conceito PEPS.", options: ["Primeiro que Entra, Primeiro que Sai", "Primeiro que Entra, Primeiro que Separa", "Produto Especial para Saída"], correct: 0, source: "Aux. Depósito - Q36" }
+            ],
+            assistente: [
+                { category: "1. Gestão de Endereçamento", question: "O que deve ser feito quando há divergência entre o estoque físico e o sistema WMS?", options: ["Ignorar se for pequena", "Reportar ao Analista e ajustar via sistema", "Ajustar fisicamente sem sistema"], correct: 1, source: "Assist. Logística - Q2" },
+                { category: "2. Operação e 5S", question: "O que significa zelar pelo 5S dentro das ruas e endereços?", options: ["Limpeza e organização constante", "Apenas varrer o chão", "Arrumar apenas quando o chefe vê"], correct: 0, source: "Assist. Logística - Q6" },
+                { category: "3. Fluxo de Validade (PEPS)", question: "Onde devem ser posicionados os materiais com vencimento próximo?", options: ["No fundo da prateleira", "Na frente, para serem colhidos primeiro", "Em um pallet separado no alto"], correct: 1, source: "Assist. Logística - Q12" },
+                { category: "4. Rotinas de Sistema", question: "Quando uma movimentação física deve ser registrada no sistema WMS?", options: ["No final do dia", "Imediatamente após a execução", "Apenas se houver erro"], correct: 1, source: "Assist. Logística - Q15" },
+                { category: "6. Expedição", question: "Por que é indispensável a bipagem de todos os volumes?", options: ["Para garantir a rastreabilidade e baixa correta", "Para testar o leitor", "Para controle de horas trabalhadas"], correct: 0, source: "Assist. Logística - Q27" }
+            ]
+        };
+
+        // --- VARIÁVEIS DE ESTADO ---
+        let currentQuiz = [];
+        let userAnswers = {}; // { questionIndex: optionIndex }
+        let chartInstance = null;
+
+        // --- INICIALIZAÇÃO DO GRÁFICO ---
+        function initChart() {
+            const ctx = document.getElementById('scoreChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Acertos', 'Erros', 'Pendentes'],
+                    datasets: [{
+                        data: [0, 0, 100],
+                        backgroundColor: ['#10b981', '#ef4444', '#e5e7eb'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '70%',
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // --- CARREGAR QUIZ ---
+        function loadQuiz(type) {
+            currentQuiz = database[type];
+            userAnswers = {}; // Resetar respostas
+            
+            // UI Update
+            document.getElementById('introState').classList.add('hidden');
+            document.getElementById('questionsList').classList.remove('hidden');
+            document.getElementById('quizTitle').innerText = type === 'auxiliar' ? "Auxiliar de Depósito" : "Assistente de Logística";
+            
+            renderQuestions();
+            updateStats();
+        }
+
+        // --- RENDERIZAR PERGUNTAS ---
+        function renderQuestions() {
+            const container = document.getElementById('questionsInject');
+            container.innerHTML = '';
+
+            currentQuiz.forEach((q, index) => {
+                const html = `
+                    <div class="border border-gray-200 rounded-lg p-6 hover:shadow-sm transition bg-gray-50">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded">${q.category}</span>
+                            <span class="text-xs text-gray-400">[Fonte: ${q.source}]</span>
+                        </div>
+                        <h4 class="text-lg font-medium text-gray-800 mb-4">${index + 1}. ${q.question}</h4>
+                        
+                        <div class="space-y-2">
+                            ${q.options.map((opt, optIndex) => `
+                                <div onclick="selectAnswer(${index}, ${optIndex})" 
+                                     id="q${index}_opt${optIndex}"
+                                     class="option-card border rounded-md p-3 text-gray-700 flex items-center gap-3">
+                                    <div class="w-4 h-4 border border-gray-400 rounded-full flex items-center justify-center">
+                                        <div class="w-2 h-2 bg-white rounded-full hidden indicator"></div>
+                                    </div>
+                                    ${opt}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += html;
+            });
+        }
+
+        // --- SELECIONAR RESPOSTA ---
+        window.selectAnswer = function(qIndex, optIndex) {
+            userAnswers[qIndex] = optIndex;
+            
+            // Atualizar UI Visual (Estilo da seleção)
+            const options = document.querySelectorAll(`[id^='q${qIndex}_opt']`);
+            options.forEach(opt => {
+                opt.classList.remove('selected', 'border-blue-500', 'bg-blue-50');
+                opt.querySelector('.indicator').classList.add('hidden');
+                opt.querySelector('.indicator').parentElement.classList.remove('bg-blue-600', 'border-blue-600');
+            });
+
+            const selected = document.getElementById(`q${qIndex}_opt${optIndex}`);
+            selected.classList.add('selected', 'border-blue-500', 'bg-blue-50');
+            selected.querySelector('.indicator').classList.remove('hidden');
+            selected.querySelector('.indicator').parentElement.classList.add('bg-blue-600', 'border-blue-600');
+
+            updateStats();
+        }
+
+        // --- CÁLCULO DE ESTATÍSTICAS E GRÁFICO ---
+        function updateStats() {
+            let correct = 0;
+            let wrong = 0;
+            let answered = Object.keys(userAnswers).length;
+            let total = currentQuiz.length;
+
+            // Calcular acertos
+            for (const [qIdx, optIdx] of Object.entries(userAnswers)) {
+                if (currentQuiz[qIdx].correct === optIdx) {
+                    correct++;
+                } else {
+                    wrong++;
+                }
+            }
+
+            let pending = total - answered;
+            let percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+            // Atualizar textos
+            document.getElementById('scoreText').innerText = `${percentage}%`;
+            document.getElementById('progressText').innerText = `${answered}/${total} Respondidas`;
+
+            // Atualizar Gráfico
+            if (chartInstance) {
+                chartInstance.data.datasets[0].data = [correct, wrong, pending];
+                chartInstance.update();
+            }
+        }
+
+        // --- QR CODE ---
+        window.showQRCode = function() {
+            const modal = document.getElementById('qrModal');
+            const container = document.getElementById('qrcode');
+            container.innerHTML = ""; // Limpar anterior
+            
+            new QRCode(container, {
+                text: window.location.href,
+                width: 128,
+                height: 128
+            });
+            
+            modal.classList.remove('hidden');
+        }
+
+        window.closeModal = function(e) {
+            if (e.target.id === 'qrModal') {
+                document.getElementById('qrModal').classList.add('hidden');
+            }
+        }
+
+        // Iniciar
+        initChart();
+    </script>
+</body>
+</html>
